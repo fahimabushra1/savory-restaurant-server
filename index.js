@@ -3,7 +3,7 @@ const app = express();
 const cors = require('cors');
 require('dotenv').config();
 const port = process.env.PORT || 5000;
-const { MongoClient, ServerApiVersion} = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId} = require('mongodb');
 
 // middleware:
 app.use(cors());
@@ -27,6 +27,41 @@ async function run() {
     const reviewCollection = client.db("savvoryDB").collection("reviews");
     const userCollection = client.db("savvoryDB").collection("users");
     const cartsCollection = client.db("savvoryDB").collection("carts");
+
+        // jwt related api
+    app.post('/jwt', async (req, res) => {
+      const user = req.body;
+      const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' });
+      res.send({ token });
+    })
+
+    // middlewares 
+    const verifyToken = (req, res, next) => {
+      console.log('inside verify token', req.headers.authorization);
+      if (!req.headers.authorization) {
+        return res.status(401).send({ message: 'unauthorized access' });
+      }
+      const token = req.headers.authorization.split(' ')[1];
+      jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+        if (err) {
+          return res.status(401).send({ message: 'unauthorized access' })
+        }
+        req.decoded = decoded;
+        next();
+      })
+    }
+
+    // use verify admin after verifyToken
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded.email;
+      const query = { email: email };
+      const user = await userCollection.findOne(query);
+      const isAdmin = user?.role === 'admin';
+      if (!isAdmin) {
+        return res.status(403).send({ message: 'forbidden access' });
+      }
+      next();
+    }
 
 
     app.post('/menu', async (req,res)=>{
@@ -101,6 +136,8 @@ async function run() {
   res.send(result);
  })
 
+//  carts collection
+
  app.post('/carts', async (req,res)=>{
   const cartData = req.body;
   const result = await cartsCollection.insertOne(cartData);
@@ -109,12 +146,19 @@ async function run() {
 
 app.get('/carts', async (req,res)=>{
   const email = req.query.email;
+  console.log(email)
   const query = {email: email}
-const cartData = cartsCollection.find(query);
-const result = await cartData.toArray();
-res.send(result);
+  const result = await cartsCollection.find(query).toArray();
+  console.log(result)
+  res.send(result);
 })
 
+app.delete('/carts/:id', async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) }
+      const result = await cartsCollection.deleteOne(query);
+      res.send(result);
+    })
     await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
